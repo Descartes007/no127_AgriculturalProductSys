@@ -1,0 +1,394 @@
+<template>
+  <div>
+    <div style="padding: 5px 0">
+      <el-input v-model="searchText" @keyup.enter.native="load" style="width: 200px"> </el-input>
+      <br>
+
+      <el-button @click="load" type="primary" style="margin: 5px">
+        搜索
+      </el-button>
+
+      <el-button @click="reset" type="warning" style="margin: 5px">
+        重置
+      </el-button>
+
+      <!-- 当this.user.role不是'admin'时，才显示按钮 -->
+      <el-button v-if="user.role !== 'admin'" @click="add" type="success" style="margin: 5px;">
+        新增审核
+      </el-button>
+
+    </div>
+
+    <el-table :data="tableData" border stripe style="width: 100%">
+      <el-table-column prop="id" label="产品id" width="80px"></el-table-column>
+      <el-table-column prop="name" label="产品名称"></el-table-column>
+      <el-table-column label="产品图片" width="120px">
+        <template slot-scope="scope">
+          <img :src="baseApi + scope.row.imgs" style="width: 90px;height: 80px">
+        </template>
+      </el-table-column>
+      <el-table-column prop="description" label="产品描述"></el-table-column>
+      <el-table-column prop="createTime" label="创建时间"></el-table-column>
+      <el-table-column prop="status" label="审核状态"></el-table-column>
+      <el-table-column prop="comment" label="审核意见"></el-table-column>
+
+      <el-table-column
+          fixed="right"
+          label="操作"
+          width="420">
+        <template slot-scope="scope">
+
+          <el-button type="warning" style="font-size: 18px;"  @click="edit(scope.row)">
+            产品详情
+          </el-button>
+
+          <el-button type="primary" style="font-size: 18px;"  @click="ok(scope.row)" v-if="user.role === 'admin'">
+            通过
+          </el-button>
+
+          <el-button type="danger" style="font-size: 18px;"  @click="reject(scope.row)" v-if="user.role === 'admin'">
+            拒绝
+          </el-button>
+
+          <el-popconfirm
+              @confirm="del(scope.row.id)"
+              title="确定删除？"
+          >
+            <el-button type="success" slot="reference" style="font-size: 18px;margin-left: 10px" v-if="user.role === 'admin'">
+              删除
+            </el-button>
+          </el-popconfirm>
+
+        </template>
+      </el-table-column>
+    </el-table>
+    <div style="margin-top: 10px">
+      <el-pagination
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+          :current-page="pageNum"
+          :page-size="pageSize"
+          :page-sizes="[3, 5, 8, 10]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+      >
+      </el-pagination>
+    </div>
+
+    <!-- 弹窗   -->
+    <el-dialog title="信息" :visible.sync="dialogFormVisible" width="30%"
+               :close-on-click-modal="false">
+      <el-form :model="entity">
+        <el-form-item label="产品名称" label-width="150px">
+          <el-input v-model="entity.name" autocomplete="off" style="width: 80%"></el-input>
+        </el-form-item>
+        <el-form-item label="产品描述" label-width="150px">
+          <el-input v-model="entity.description" autocomplete="off" style="width: 80%"></el-input>
+        </el-form-item>
+        <el-form-item label="折扣" label-width="150px">
+          <el-input v-model="entity.discount" autocomplete="off" style="width: 80%"></el-input>
+        </el-form-item>
+        <el-form-item label="分类id" label-width="150px">
+          <el-input v-model="entity.categoryId" autocomplete="off" style="width: 80%"></el-input>
+        </el-form-item>
+        <el-form-item label="产品图片" label-width="150px">
+          <el-upload
+              class="upload-demo"
+              ref="upload"
+              :action="baseApi + '/file/upload'"
+              :file-list="fileList"
+              :on-change="handleChange"
+              :limit="2"
+              :on-success="handleImgSuccess"
+              :auto-upload="false">
+            <el-button slot="trigger" size="small" type="primary">选取文件</el-button>
+            <div slot="tip" class="el-upload__tip">只能上传jpg/png文件，且不超过500kb</div>
+          </el-upload>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button @click="dialogFormVisible = false" style="font-size: 20px;"> 取消</el-button>
+        <el-button type="primary" @click="save" style="font-size: 20px;"> 确定</el-button>
+      </div>
+    </el-dialog>
+
+<!--    编写一个已通过的dialog，上面可以填写审核意见-->
+    <el-dialog title="审核通过" :visible.sync="checkDialogFormVisibleOK" width="30%"
+               :close-on-click-modal="false">
+      <el-form :model="okForm">
+        <el-form-item label="审核意见" label-width="150px">
+          <el-input v-model="okForm.comment" autocomplete="off" style="width: 80%"></el-input>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button @click="checkDialogFormVisibleOK = false" style="font-size: 20px;"> 取消</el-button>
+        <el-button type="primary" @click="saveCheckOK" style="font-size: 20px;"> 确定</el-button>
+      </div>
+    </el-dialog>
+
+
+    <el-dialog title="审核不通过" :visible.sync="checkDialogFormVisibleNo" width="30%"
+               :close-on-click-modal="false">
+      <el-form :model="noForm">
+        <el-form-item label="审核意见" label-width="150px">
+          <el-input v-model="noForm.comment" autocomplete="off" style="width: 80%"></el-input>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button @click="checkDialogFormVisibleNo = false" style="font-size: 20px;"> 取消</el-button>
+        <el-button type="primary" @click="saveCheckNo" style="font-size: 20px;"> 确定</el-button>
+      </div>
+    </el-dialog>
+
+  </div>
+</template>
+
+<script>
+import API from '../../../utils/request'
+const url = "/api/good/check/"
+
+
+export default {
+  name: "Goods",
+  data() {
+    return {
+      baseApi: this.$store.state.baseApi,
+      fileList: [],
+      options: [],
+      searchText: '',
+      user: {},
+      tableData: [],
+      pageNum: 1,
+      pageSize: 5,
+      entity: {},
+      total: 0,
+      dialogFormVisible: false,
+      checkDialogFormVisibleOK: false,
+      okForm: {},
+      checkDialogFormVisibleNo: false,
+      noForm: {},
+
+    };
+  },
+  created() {
+    this.user = localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user")) : {}
+    this.load()
+
+  },
+  methods: {
+
+    saveCheckOK(){
+      this.okForm.status = '已通过'
+      API.post(url+"update", this.okForm).then((res2) => {
+        if (res2.code === "200") {
+          // 提示已通过
+          this.$message({
+            type: "success",
+            message: "操作成功",
+            showClose: true
+          })
+          this.checkDialogFormVisibleOK = false
+          this.load()
+
+        } else {
+          this.$message({
+            type: "error",
+            message: res2.msg,
+          });
+        }
+      });
+    },
+
+    saveCheckNo(){
+      this.noForm.status = '未通过'
+      API.post(url+"update", this.noForm).then((res2) => {
+        if (res2.code === "200") {
+          // 提示已通过
+          this.$message({
+            type: "success",
+            message: "操作成功",
+            showClose: true
+          })
+          this.checkDialogFormVisibleNo = false
+        this.load()
+
+        } else {
+          this.$message({
+            type: "error",
+            message: res2.msg,
+          });
+        }
+      });
+    },
+
+    handleSizeChange(pageSize) {
+      this.pageSize = pageSize
+      this.load()
+    },
+    handleCurrentChange(pageNum) {
+      this.pageNum = pageNum
+      this.load()
+    },
+    handleRecommend(good){
+      API.get(url + "recommend", {
+        params: {
+          id: good.id,
+          isRecommend : good.recommend,
+        }
+      }).then(res => {
+        if(res.code==='200'){
+          this.$message.success("修改成功")
+        }else{
+          this.$message.error(res.msg)
+        }
+      })
+    },
+    load() {
+      let userId =-1
+      if (this.user.role==="farmer"){
+        userId = this.user.id
+      }
+
+      API.get(url + "page", {
+        params: {
+          pageNum: this.pageNum,
+          pageSize: this.pageSize,
+          searchText: this.searchText,
+          userId: userId
+        }
+      }).then(res => {
+        this.tableData = res.data.records
+        this.total = res.data.total
+
+      })
+
+
+    },
+    reset(){
+      this.searchText = '';
+      this.load()
+    },
+    add() {
+      // this.entity = {}
+      // this.fileList = []
+      // this.dialogFormVisible = true
+      this.$router.push("checkInfo")
+    },
+    edit(obj) {
+      this.entity = JSON.parse(JSON.stringify(obj))
+      this.$router.push({name: 'checkDetails',query:{good: JSON.stringify(this.entity)}})
+    },
+    //同意
+    ok(obj){
+      if (obj.status!=='待审核'){
+        this.$message({
+          type: "error",
+          message: "该产品已审核",
+          showClose: true
+        })
+        return
+      }
+      this.okForm = obj
+      // 弹出确认框
+     this.checkDialogFormVisibleOK = true
+
+      // 传入数据，修改审核状态为已通过
+      // API.post(url, obj).then((res2) => {
+      //   if (res2.code === "200") {
+      //     // 提示已通过
+      //     this.$message({
+      //       type: "success",
+      //       message: "已通过",
+      //       showClose: true
+      //     })
+      //
+      //
+      //   } else {
+      //     this.$message({
+      //       type: "error",
+      //       message: res2.msg,
+      //     });
+      //   }
+      // });
+
+
+
+     },
+    // 拒绝
+    reject(obj){
+      if (obj.status!=='待审核'){
+        this.$message({
+          type: "error",
+          message: "该产品已审核",
+          showClose: true
+        })
+        return
+      }
+      this.noForm = obj
+      this.checkDialogFormVisibleNo = true
+
+    },
+    handleImgSuccess(res){
+      this.entity.imgs = res.data;
+      API.post(url, this.entity).then(res2 => {
+        if (res2.code === '200') {
+          this.$message({
+            type: "success",
+            message: "操作成功"
+          })
+        } else {
+          this.$message({
+            type: "error",
+            message: res2.msg
+          })
+        }
+        this.load()
+        this.dialogFormVisible = false
+      })
+    },
+    save() {
+      console.log(this.fileList)
+      //上传图片
+      if(this.fileList.length!==0){
+        console.log('上传中')
+        this.$refs.upload.submit();
+      }else{
+        //不上传图片
+        console.log(this.entity)
+        API.post(url, this.entity).then(res2 => {
+          if (res2.code === '200') {
+            this.$message({
+              type: "success",
+              message: "操作成功"
+            })
+          } else {
+            this.$message({
+              type: "error",
+              message: res2.msg
+            })
+          }
+          this.load()
+          this.dialogFormVisible = false
+        })
+      }
+    },
+    del(id) {
+      API.delete(url + id).then(res => {
+        this.$message({
+          type: "success",
+          message: "操作成功"
+        })
+        this.load()
+      })
+    },
+    handleChange(file, fileList){
+      this.fileList = fileList.slice(-3);
+    },
+
+  }
+
+};
+</script>
+
+<style scoped>
+</style>
